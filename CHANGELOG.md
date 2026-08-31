@@ -1,4 +1,5 @@
 # Changelog
+ * [Unreleased] Add Image API support
  * [Unreleased] Add Markdown search and archive output support
  * [Unreleased] Raise `SerpApiError` for non-200 text responses, including 404 responses from `get('/invalid')`
  * [2026-02-23] 1.0.3 Enhance error object #16
