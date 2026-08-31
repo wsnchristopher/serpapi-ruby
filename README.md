@@ -56,7 +56,7 @@ client.close
 - [Asynchronous searches](./demo/demo_async.rb) for submitting non-blocking jobs and retrieving completed results from the Search Archive API.
 - [Persistent connections and connection pooling](./demo/demo_thread_pool.rb) for reusing HTTP connections across searches.
 - Search results as Ruby hashes with `search`, token-efficient Markdown with `md`, or raw search-engine HTML with `html`.
-- SDK methods for the [Location API](https://serpapi.com/locations-api), [Search Archive API](https://serpapi.com/search-archive-api), and [Account API](https://serpapi.com/account-api).
+- SDK methods for the [Image API](https://serpapi.com/image-api), [Location API](https://serpapi.com/locations-api), [Search Archive API](https://serpapi.com/search-archive-api), and [Account API](https://serpapi.com/account-api).
 - Configurable HTTP timeouts and symbolized or string JSON keys.
 
 ## Response formats
@@ -210,6 +210,21 @@ pp results[:images_results]
 
 A [light variant](https://serpapi.com/google-images-light-api) engine called `google_images_light` is also available for faster, lower-cost image searches.
 
+### Google Lens with File Upload
+
+Upload an image with the Image API, then use its image ID in a Google Lens search. Uploaded image IDs expire after 10 minutes.
+
+```ruby
+require 'serpapi'
+
+client = SerpApi::Client.new(api_key: ENV['SERPAPI_KEY'])
+upload = client.upload_image('./image.jpg')
+results = client.search(engine: 'google_lens', image_id: upload[:image_id])
+pp results[:visual_matches]
+```
+
+[See Image API documentation](https://serpapi.com/image-api) · [See Google Lens image upload documentation](https://serpapi.com/google-lens-upload-an-image)
+
 ### Google Trends
 
 Track search interest over time and compare the popularity of search terms.
@@ -356,6 +371,6 @@ The older library (google-search-results-ruby) was performing at 55 req/s on Rub
 
 ## Contributing
 
-Contributions are welcome. Make sure to read our [contributing guide](./CONTRIBUTING.md).
+Contributions are welcome. Make sure to read our [contributing guide](https://github.com/serpapi/serpapi-ruby/blob/master/CONTRIBUTING.md).
 
 © 2026 [SerpApi](https://serpapi.com)
