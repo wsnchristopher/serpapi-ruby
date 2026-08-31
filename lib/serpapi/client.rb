@@ -7,7 +7,7 @@ module SerpApi
   #  features:
   #  * async non-block search
   #  * persistent HTTP connection
-  #  * search API
+  #  * search API with JSON, HTML, and Markdown output
   #  * image API
   #  * location API
   #  * account API
@@ -16,6 +16,9 @@ module SerpApi
   class Client
     # Backend service URL
     BACKEND = 'serpapi.com'.freeze
+    # SerpApi errors are JSON even when HTML or Markdown output was requested.
+    # Decode the actual Content-Type so structured errors and successful JSON responses become Hashes.
+    CONTENT_TYPE_DECODERS = { 'application/json' => :json, 'text/html' => :html, 'text/markdown' => :md }.freeze
 
     # HTTP timeout requests
     attr_reader :timeout,
@@ -109,7 +112,7 @@ module SerpApi
     #                 thus, most of the compute power is on the backsdend and not on the client side.
     # @param [Hash] params includes engine, api_key, search fields and more..
     #                this override the default params provided to the constructor.
-    # @return [Hash] search results formatted as a Hash.
+    # @return [Hash|String] search results formatted as a Hash or raw text.
     def search(params = {})
       get('/search', :json, params)
     end
@@ -119,9 +122,18 @@ module SerpApi
     #  it is useful for training AI models, RAG, debugging
     #   or when you need to parse the HTML yourself.
     #
-    # @return [String] raw html search results directly from the search engine.
+    # @return [String] raw HTML search results.
     def html(params = {})
-      get('/search', :html, params)
+      get('/search', :html, force_output(params, 'html'))
+    end
+
+    # Perform a search using SerpApi.com and return results optimized for LLMs and AI agents.
+    # The output contains Markdown tables, links, and YAML frontmatter.
+    #
+    # @param [Hash] params includes engine, api_key, search fields and more.
+    # @return [String] search results formatted as Markdown.
+    def md(params = {})
+      get('/search', :md, force_output(params, 'md'))
     end
 
     # Get location using Location API
@@ -166,10 +178,10 @@ module SerpApi
     # doc: https://serpapi.com/search-archive-api
     #
     # @param [String|Integer] search_id from original search `results[:search_metadata][:id]`
-    # @param [Symbol] format :json or :html [default: json, optional]
-    # @return [String|Hash] raw html or JSON / Hash
+    # @param [Symbol] format :json, :html, or :md [default: json, optional]
+    # @return [String|Hash] raw HTML, Markdown, or JSON / Hash
     def search_archive(search_id, format = :json)
-      raise SerpApiError, 'format must be json or html' unless [:json, :html].include?(format)
+      raise SerpApiError, 'format must be json, html, or md' unless [:json, :html, :md].include?(format)
 
       get("/searches/#{search_id}.#{format}", format)
     end
@@ -208,6 +220,12 @@ module SerpApi
 
     private
 
+    def force_output(params, format)
+      return params unless params.is_a?(Hash)
+
+      params.reject { |key, _| key.to_s == 'output' }.merge(output: format)
+    end
+
     # @param [Hash] params to merge with default parameters provided to the constructor.
     # @return [Hash] merged query parameters after cleanup
     def query(params)
@@ -215,6 +233,8 @@ module SerpApi
 
       # merge default params with custom params
       q = @params.clone.merge(params)
+      q.delete('output') if params.key?(:output)
+      q.delete(:output) if params.key?('output') && !params.key?(:output)
 
       # do not pollute default params with custom params
       q.delete(:symbolize_names) if q.key?(:symbolize_names)
@@ -231,12 +251,14 @@ module SerpApi
     # Perform HTTP GET request to the SerpApi.com backend endpoint.
     #
     # @param [String] endpoint HTTP service URI
-    # @param [Symbol] decoder type :json or :html
+    # @param [Symbol] decoder type :json, :html, or :md
     # @param [Hash] params custom search inputs
-    # @return [String|Hash] raw HTML or decoded response as JSON / Hash
+    # @return [String|Hash] raw text or decoded response as JSON / Hash
     def get(endpoint, decoder = :json, params = {})
       response = execute_request(:get, endpoint, params: query(params))
-      handle_response(response, decoder, endpoint, params)
+      handle_response(response, response_decoder(response, decoder), endpoint, params)
+    ensure
+      response&.flush if persistent?
     end
 
     # Perform an HTTP POST request with a multipart/form-data body
@@ -257,14 +279,19 @@ module SerpApi
       client.public_send(method, url, **options)
     end
 
+    def response_decoder(response, default)
+      content_type = response.headers['Content-Type'].to_s.split(';').first
+      CONTENT_TYPE_DECODERS.fetch(content_type, default)
+    end
+
     def handle_response(response, decoder, endpoint, params)
       case decoder
       when :json
         process_json_response(response, endpoint, params)
-      when :html
-        process_html_response(response, endpoint, params)
+      when :html, :md
+        process_text_response(response, endpoint, params, decoder)
       else
-        raise SerpApiError, "not supported decoder: #{decoder}, available: :json, :html"
+        raise SerpApiError, "not supported decoder: #{decoder}, available: :json, :html, :md"
       end
     end
 
@@ -278,13 +305,13 @@ module SerpApi
         raise_parser_error(response, endpoint, params)
       end
 
-      response.flush if persistent?
       data
     end
 
-    def process_html_response(response, endpoint, params)
-      raise_http_error(response, nil, endpoint, params, decoder: :html) if response.status != 200
-      response.body
+    def process_text_response(response, endpoint, params, decoder)
+      raise_http_error(response, nil, endpoint, params, decoder: decoder) if response.status != 200
+
+      response.body.to_s
     end
 
     def validate_json_content!(data, response, endpoint, params)
